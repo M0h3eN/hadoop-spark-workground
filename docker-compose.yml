@@ -1,0 +1,132 @@
+version: "3.7"
+
+services:
+        # HDFS services
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.1.3-java8
+    container_name: namenode
+    ports:
+      - "9870:9870"  
+    environment:
+      - CLUSTER_NAME=test
+    env_file:
+      - ./conf/hadoop/hadoop.env        
+    volumes:
+      - "hdfs-namenode:/hadoop/dfs/name"
+      - "external-data:/data"
+    healthcheck:
+      interval: 5s
+      retries: 100 
+    networks:
+      - spark-net
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.1.3-java8
+    container_name: datanode
+    env_file:
+      - ./conf/hadoop/hadoop.env    
+    volumes:
+      - "hdfs-datanode:/hadoop/dfs/data"
+      - "external-data:/data"
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    ports:
+      - "9864:9864"      
+    depends_on:
+      namenode:
+        condition: service_healthy
+    healthcheck:
+      interval: 5s
+      retries: 100 
+    networks:
+      - spark-net
+
+    # SPARK services    
+  spark-master:
+    image: bde2020/spark-master:latest
+    container_name: spark-master
+    ports:
+      - 8080:8080
+      - 7077:7077
+    volumes:
+      - "conf/spark:/spark/conf"
+      - "spark-master-logs:/spark/logs"
+      - "external-data:/data"
+      - "extra-jars:/opt/jars"
+    depends_on:
+      - namenode
+      - datanode
+    networks:
+      - spark-net
+  spark-worker:
+    image: bde2020/spark-worker:latest
+    container_name: spark-worker-1    
+    volumes:
+      - "conf/spark:/spark/conf"            
+      - "spark-slave1-logs:/spark/logs"
+      - "external-data:/data"
+      - "extra-jars:/opt/jars"
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+    ports:
+      - 8081:8081
+    networks:
+      - spark-net
+
+
+        # ZEPPELIN and HDFS file browser services      
+  zeppelin:
+    build: ./docker-files/zeppelin-bde/
+    image: zeppelin-bde2020:0.8.2
+    container_name: zeppelin    
+    ports:
+      - 8085:8080
+      - 4042:4040  
+    volumes:
+      - "/conf/zeppelin:/opt/zeppelin/conf"            
+      - "zeppelin-notebook:/opt/zeppelin/notebook"
+      - "zeppelin-logs:/opt/zeppelin/logs"  
+      - "external-data:/data"
+      - "/conf/spark:/opt/spark-2.4.4-bin-hadoop2.7/conf"        
+      - "spark-binary-extracted:/opt/spark-2.4.4-bin-hadoop2.7"
+      - "extra-jars:/opt/jars"
+    environment:
+      SPARK_MASTER: "spark://spark-master:7077"
+      MASTER: "spark://spark-master:7077"
+    depends_on:
+      - spark-master
+      - namenode
+    networks:
+      - spark-net
+
+  hue:
+    image: bde2020/hdfs-filebrowser:3.11
+    container_name: hue    
+    ports:
+      - 8088:8088
+    environment:
+      - NAMENODE_HOST=namenode
+      - SPARK_MASTER=spark://spark-master:7077
+    depends_on:
+      - spark-master
+      - namenode
+    networks:
+      - spark-net        
+
+        
+networks:
+  spark-net:
+    external:
+     name: spark-net
+
+volumes: 
+  hdfs-namenode: 
+  hdfs-datanode: 
+  spark-master-logs: 
+  spark-slave1-logs: 
+  spark-binary-extracted: 
+  extra-jars: 
+  external-data: 
+  zeppelin-notebook: 
+  zeppelin-logs: 
